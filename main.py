@@ -5,7 +5,7 @@ from aiogram.contrib.fsm_storage.memory import MemoryStorage
 
 from config import TOKEN
 from States import States
-from db_all_rooms import Tbgames
+from db import Tbgames
 from market import market
 
 bot = Bot(token=TOKEN)
@@ -19,32 +19,36 @@ async def start_command(message: types.Message):
     table_games.new_user(message.from_user.id, message.chat.id)
     await message.answer("Это бот-игра, который моделирует рынок олигополии по Курно. Олигополия - тип рынка "
                          "несовершенной конкуренции, на котором функционирует небольшое количество фирм. В модели "
-                         "олигополии по Курно фирмы одновременно выбирают свой объем продаж. На основе их выбора, "
-                         "исходя из спроса потребителя, формируется цена на товар. Чем больше товара на рынке, "
-                         "тем он менее ценный для потребителя, и наоборот.")
-    await message.answer("Присоединиться к игре - /joingame")
+                         "олигополии по Курно фирмы одновременно выбирают, какое количество продукта производить. "
+                         "На основе их выбора формируется цена на товар. Чем больше товара на рынке, "
+                         "тем он менее ценный для потребителя, и наоборот."
+                         "Игроки играют по комнатам, в кажой комнате по 4 фирмы-пользователя. Игра проходит поэтапно, "
+                         "и на каждом этапе каждый пользователь-фирма выбирает количесвто производимого продукта. После"
+                         " завершения всех этапов игры выделяется победитель - пользователь, заработавший наибольшую "
+                         "прибыль")
     await message.answer("Создать новую комнату для игры - /newgame")
+    await message.answer("Присоединиться к игре по названию комнаты и паролю- /joingame")
     await States.LOBBY.set()
 
 
 @dp.message_handler(commands=['joingame'], state=States.LOBBY)
 async def join_game(message: types.Message):
     await message.answer("Введите назание комнаты, к которой хотите присоединиться")
-    await message.answer("Чтобы вернуться, напишите /lobby")
+    await message.answer("Чтобы вернуться назад, напишите /lobby")
     await States.JOIN_GAME_NAME.set()
 
 
 @dp.message_handler(state=States.JOIN_GAME_NAME, commands=['lobby'])
 async def go_lobby_join(message: types.Message):
-    await message.answer("Присоединиться к игре - /joingame")
     await message.answer("Создать новую комнату для игры - /newgame")
+    await message.answer("Присоединиться к игре по названию комнаты и паролю- /joingame")
     await States.LOBBY.set()
 
 
 @dp.message_handler(state=States.CREATING_NEW_GAME_NAME, commands=['lobby'])
 async def go_lobby_new_game(message: types.Message):
-    await message.answer("Присоединиться к игре - /joingame")
     await message.answer("Создать новую комнату для игры - /newgame")
+    await message.answer("Присоединиться к игре по названию комнаты и паролю- /joingame")
     await States.LOBBY.set()
 
 
@@ -62,7 +66,7 @@ async def join_game_name(message: types.Message):
 async def join_game_password(message: types.Message):
     room_name = table_games.get_room(message.from_user.id)
     if table_games.check_password(message.text, room_name):
-        await message.answer("Теперь придумайте себе имя для игры")
+        await message.answer("Теперь придумайте себе имя в игре, которое также будет являться названием вашей фирмы")
         await States.CHOOSING_PLAYER_NAME.set()
     else:
         await message.answer("Неверный пароль. Попробуйте ещё раз")
@@ -71,7 +75,7 @@ async def join_game_password(message: types.Message):
 @dp.message_handler(commands=['newgame'], state=States.LOBBY)
 async def new_game(message: types.Message):
     await message.answer("Придумайте и напишите название для вашей комнаты")
-    await message.answer("Чтобы вернуться, напишите /lobby")
+    await message.answer("Чтобы вернуться назад, напишите /lobby")
     await States.CREATING_NEW_GAME_NAME.set()
 
 
@@ -89,10 +93,21 @@ async def creating_game_name(message: types.Message):  # названия ком
 async def creating_game_password(message: types.Message):
     if len(message.text) >= 5:
         table_games.set_password(message.from_user.id, message.text)
-        await message.answer("Теперь придумайте себе имя для игры")
-        await States.CHOOSING_PLAYER_NAME.set()
+        await message.answer("Во сколько этапов будет проводится игра?")
+        await States.CREATING_NEW_GAME_SET_STEPS.set()
     else:
         await message.answer("Пароль слишком короткий. Введите другой пароль")
+
+
+@dp.message_handler(state=States.CREATING_NEW_GAME_SET_STEPS)
+async def creating_game_set_steps(message: types.Message):
+    steps = message.text
+    if not steps.isdigit() or '.' in steps:
+        await message.answer("Неккоректный тип данных. Введите целое число")
+    else:
+        table_games.set_room_steps(int(message.text), message.from_user.id)
+        await message.answer("Теперь придумайте себе имя в игре, которое также будет являться названием вашей фирмы")
+        await States.CHOOSING_PLAYER_NAME.set()
 
 
 @dp.message_handler(state=States.CHOOSING_PLAYER_NAME)
@@ -100,7 +115,7 @@ async def choosing_player_name(message: types.Message):
     room_name = table_games.get_room(message.from_user.id)
     if not table_games.name_existence(message.text, room_name):
         table_games.set_name(room_name, message.from_user.id, message.text)
-        if table_games.how_much_players(room_name) == 3:  # изменить на 3
+        if table_games.how_much_players(room_name) == 2:
             table_games.next_step(room_name)
             for user_id in table_games.get_players(room_name):
                 await bot.send_message(table_games.get_chat_id(user_id[0]), "Комната заполнена. Напишите Готов,"
@@ -118,13 +133,16 @@ async def waiting(message: types.Message):
     if message.text == "готов" or message.text == "Готов":
         table_games.set_state(message.from_user.id, "answering")
         table_games.next_step_user(message.from_user.id)
+        room_name = table_games.get_room(message.from_user.id)
+        steps = str(table_games.get_room_steps(room_name))
         await message.answer("Итак, вы являетесь владельцем фирмы, которая производит товар X на рынке "
-                             "олигополии. Помимо вашей фирмы, на рынке функционируют еще 2 фирмы. Игра проходит в 5 "
-                             "циклов. Каждый игровой цикл вы должны выбирать, какое количество товаров будете "
-                             "производить. На основе вашего выбора и выбора других фирм на рынке будет "
-                             "формироваться цена на ваш товар X. После каждого цикла вам будет приходить сообщение "
-                             "об итогах игрового цикла.")
-        await message.answer("Введите, какое количество товара вы будете производить в данный игровой цикл")
+                             "олигополии. Помимо вашей фирмы, на рынке функционируют еще 3 фирмы. Игра проходит в "
+                             + steps + " этапов. На каждом этапе вы должны выбирать, какое количество товаров "
+                             "будете производить. На основе вашего выбора и выбора других фирм на рынке будет "
+                             "формироваться цена на ваш товар X. После каждого этапа вам будет приходить сообщение "
+                             "об итогах игрового цикла. Оценивайте, какой выбор вы сделали на этапе и какую прибыль "
+                             "получили, меняйте стратегии игры, пробуйте уменьшать и увеличивать объёмы продаж. Удачи!")
+        await message.answer("Введите, какое количество товара вы будете производить на данном этапе")
         await States.PLAYING_ANSWERING.set()
 
 
@@ -140,10 +158,10 @@ async def playing(message: types.Message):
         table_games.set_state(message.from_user.id, "waiting")
         if table_games.check_all_states("waiting", room_name):
             values = table_games.get_values(room_name)
-            result = market(values)  # result = {"user_id1": income1, "user_id2": income2, "user_id3": income3)}
-            table_games.update_income(room_name, result)
+            params = table_games.get_params(room_name)
+            result = market(values, params[0], params[1], params[2])  # result = {"user_id1": income1, "user_id2":
+            table_games.update_income(room_name, result)              # income2, "user_id3": income3)}
             rating = table_games.get_rate(room_name)
-
             rate = "Рейтинг игроков:" + "\n"
             table_games.next_step(room_name)
             for name in rating:
@@ -168,7 +186,7 @@ async def playing(message: types.Message):
 async def waiting_for_others(message: types.Message):
     if message.text == "Дальше" or message.text == "дальше":
         room_name = table_games.get_room(message.from_user.id)
-        if table_games.get_step(room_name) == 4:  # изменить на 6
+        if table_games.get_step(room_name) == table_games.get_room_steps(room_name) + 1:
             rating = table_games.get_rate(room_name)
             rate = "Рейтинг игроков:" + "\n"
             for name in rating:
@@ -178,8 +196,8 @@ async def waiting_for_others(message: types.Message):
             table_games.delete_user(message.from_user.id, room_name)
             if table_games.how_much_players(room_name) == 0:
                 table_games.delete_room(room_name)
-            await message.answer("Присоединиться к игре - /joingame")
             await message.answer("Создать новую комнату для игры - /newgame")
+            await message.answer("Присоединиться к игре по названию комнаты и паролю- /joingame")
             await States.LOBBY.set()
         else:
             table_games.next_step_user(message.from_user.id)
