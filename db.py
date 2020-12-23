@@ -1,4 +1,5 @@
 import sqlite3
+from market import set_params
 
 
 class Tbgames:
@@ -10,7 +11,11 @@ class Tbgames:
                            room_name VARCHAR(20),
                            password VARCHAR(20),
                            n_players INTEGER,
-                           step INTEGER
+                           step INTEGER,
+                           steps INTEGER,
+                           a INTEGER,
+                           b INTEGER,
+                           mc Integer
                            )''')
         cursor.execute(''' CREATE TABLE IF NOT EXISTS users_rooms
                                    (user_id INTEGER,
@@ -40,9 +45,10 @@ class Tbgames:
 
     def new_room(self, user_id, room_name):  # создание новой комнаты
         cursor = self.connection.cursor()
+        params = set_params()
         cursor.execute('''INSERT INTO games
-                          (creator, room_name, password, n_players, step)
-                          VALUES (?, ?, ?, ?, ?)''', (user_id, room_name, "", 0, 0))
+                          (creator, room_name, password, n_players, step, steps, a, b, mc)
+                          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)''', (user_id, room_name, "", 0, 0, 0, params[0], params[1], params[2]))
         cursor.execute('''CREATE TABLE IF NOT EXISTS ''' + room_name +
                        ''' (user_id INTEGER,
                             name VARCHAR(20),
@@ -52,6 +58,14 @@ class Tbgames:
                             money INTEGER
                            )''')
         self.try_connect_to_room(user_id, room_name)
+        cursor.close()
+        self.connection.commit()
+
+    def set_room_steps(self, steps, user_id):
+        cursor = self.connection.cursor()
+        cursor.execute('''UPDATE games
+                          SET steps = ?
+                          WHERE creator = ?''', (steps, user_id))
         cursor.close()
         self.connection.commit()
 
@@ -79,6 +93,19 @@ class Tbgames:
     def get_room(self, user_id):  # функция возвращает название комнаты, в которой сейчас играет пользователь с user_id
         cursor = self.connection.cursor()
         return list((cursor.execute('''SELECT room_name FROM users_rooms WHERE user_id = ?''', (user_id,))))[0][0]
+
+    def get_room_steps(self, room_name):
+        cursor = self.connection.cursor()
+        return list(cursor.execute('''SELECT steps FROM games WHERE room_name = ?''', (room_name,)))[0][0]
+
+    def get_params(self, room_name):
+        cursor = self.connection.cursor()
+        params = list(cursor.execute('''SELECT a, b, mc FROM games WHERE room_name = ?''', (room_name,)))
+        print(params)
+        a = params[0][0]
+        b = params[0][1]
+        mc = params[0][2]
+        return (a, b, mc)
 
     def name_existence(self, name, room_name):
         cursor = self.connection.cursor()
@@ -117,8 +144,8 @@ class Tbgames:
 
         n = self.how_much_players(room_name)
         cursor.execute('''UPDATE games
-                                  SET n_players = ?
-                                  WHERE room_name = ?''', (n - 1, room_name))
+                          SET n_players = ?
+                          WHERE room_name = ?''', (n - 1, room_name))
         cursor.execute('''UPDATE users_rooms
                           SET room_name = ?
                           WHERE user_id = ?''', ("", user_id))
@@ -188,7 +215,7 @@ class Tbgames:
                                         ''' WHERE user_id = ?''', (user_id,)))[0][0]
             cursor.execute('''UPDATE ''' + room_name +
                            ''' SET money = ?
-                               WHERE user_id = ?''', (money + result[user_id], user_id))
+                               WHERE user_id = ?''', (round(money + result[user_id], 1), user_id))
         cursor.close()
         self.connection.commit()
 
@@ -215,3 +242,4 @@ class Tbgames:
         cursor.execute('''DELETE FROM games WHERE room_name = ?''', (room_name,))
         cursor.close()
         self.connection.commit()
+
